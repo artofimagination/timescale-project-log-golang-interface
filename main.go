@@ -86,19 +86,18 @@ func addData(w http.ResponseWriter, r *http.Request) {
 		dataList[i] = d
 	}
 
-	if err := controller.AddData(dataList); err != nil {
-		if err.Error() == dbcontrollers.ErrFailedToAddData.Error() {
-			w.WriteHeader(http.StatusAccepted)
-			fmt.Fprint(w, err.Error())
-			return
-		}
-		w.WriteHeader(http.StatusInternalServerError)
+	if err := controller.AddData(dataList); err == nil {
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprint(w, "Data addition complete")
+		return
+	}
+	if err.Error() == dbcontrollers.ErrFailedToAddData.Error() {
+		w.WriteHeader(http.StatusAccepted)
 		fmt.Fprint(w, err.Error())
 		return
 	}
-
-	w.WriteHeader(http.StatusOK)
-	fmt.Fprint(w, "Data addition complete")
+	w.WriteHeader(http.StatusInternalServerError)
+	fmt.Fprint(w, err.Error())
 }
 
 func getDataByViewer(w http.ResponseWriter, r *http.Request) {
