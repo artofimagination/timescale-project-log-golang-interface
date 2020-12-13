@@ -1,17 +1,19 @@
 package dbcontrollers
 
 import (
-	"errors"
 	"fmt"
 	"os"
 
 	"github.com/artofimagination/timescaledb-project-log-go-interface/timescaledb"
+	"github.com/pkg/errors"
 )
 
 type DBControllerCommon interface {
 }
 
-type TimescaleController struct{}
+type TimescaleController struct {
+	DBFunctions timescaledb.FunctionsCommon
+}
 
 func NewDBController() (*TimescaleController, error) {
 	address := os.Getenv("TIMESCALE_DB_ADDRESS")
@@ -35,18 +37,28 @@ func NewDBController() (*TimescaleController, error) {
 		return nil, errors.New("TIMESCALE DB name not defined")
 	}
 
-	timescaledb.MigrationDirectory = os.Getenv("TIMESCALE_DB_PASSWORD")
-	if timescaledb.MigrationDirectory == "" {
-		return nil, errors.New("TIMESCALE DB migration folder not defined")
-	}
-	timescaledb.DBConnection = fmt.Sprintf(
-		"%s:%s@tcp(%s:%s)/%s?parseTime=true",
+	connectionString := fmt.Sprintf(
+		"postgres://%s:%s@%s:%s/%s?sslmode=disable",
 		username,
 		pass,
 		address,
 		port,
 		dbName)
+	migrationDirectory := os.Getenv("TIMESCALE_DB_MIGRATION_DIR")
+	if migrationDirectory == "" {
+		return nil, errors.New("TIMESCALE DB migration folder not defined")
+	}
 
-	controller := &TimescaleController{}
+	controller := &TimescaleController{
+		DBFunctions: &timescaledb.TimescaleFunctions{
+			MigrationDirectory: migrationDirectory,
+			DBConnection:       connectionString,
+		},
+	}
+
+	if err := controller.DBFunctions.(*timescaledb.TimescaleFunctions).BootstrapTables(); err != nil {
+		return nil, fmt.Errorf("Data bootstrap failed. %s", errors.WithStack(err))
+	}
+
 	return controller, nil
 }

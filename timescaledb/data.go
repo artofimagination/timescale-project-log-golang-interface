@@ -2,98 +2,146 @@ package timescaledb
 
 import (
 	"encoding/json"
+	"strings"
 	"time"
 
-	"github.com/google/uuid"
+	"github.com/artofimagination/timescaledb-project-log-go-interface/models"
+	"github.com/pkg/errors"
 )
 
-type Data struct {
-	CreatedAt time.Time       `json:"created_at"`
-	ProjectID uuid.UUID       `json:"project_id"`
-	RunSeqNo  int             `json:"run_seq_no"`
-	Data      json.RawMessage `json:"data"`
+var ErrFailedToAdd = errors.New("Failed to add project data")
+var ErrFailedToDelete = errors.New("Failed to delete project data")
+
+var AddDataQuery = "INSERT INTO projects_data VALUES (NOW(), ?, ?)"
+
+func (f *TimescaleFunctions) AddData(data []models.Data) error {
+	query := AddDataQuery + strings.Repeat(",(NOW(), ?, ?)", len(data)-1) + ")"
+	interfaceList := make([]interface{}, len(data))
+	for i := range data {
+		binary, err := json.Marshal(data[i].Data)
+		if err != nil {
+			return err
+		}
+		interfaceList[i] = data[i].ViewerID
+		interfaceList[i] = binary
+	}
+
+	tx, err := f.Connect()
+	if err != nil {
+		return err
+	}
+
+	result, err := tx.Exec(query, interfaceList...)
+	if err != nil {
+		return err
+	}
+
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return f.RollbackWithErrorStack(tx, err)
+	}
+
+	if affected == 0 {
+		if errRb := tx.Rollback(); errRb != nil {
+			return err
+		}
+		return ErrFailedToAdd
+	}
+
+	return tx.Commit()
 }
 
-// AddData will insert data into timescale db.
-// Project ID is always generated in the user DB.
-func AddData(projectID uuid.UUID, runSeqNo int, data interface{}) error {
-	query := "INSERT INTO project_data VALUES (NOW(), $1, $2, $3)"
-	db, err := ConnectData()
-	if err != nil {
-		return err
-	}
-	defer db.Close()
+var DeleteByViewerIDQuery = "DELETE FROM projects_data WHERE viewer_id=?"
 
-	_, err = db.Exec(query, projectID, runSeqNo, data)
+func (f *TimescaleFunctions) DeleteByViewerID(viewerID int) error {
+	tx, err := f.Connect()
 	if err != nil {
 		return err
 	}
-	return nil
+
+	result, err := tx.Exec(DeleteByViewerIDQuery, viewerID)
+	if err != nil {
+		return err
+	}
+
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return f.RollbackWithErrorStack(tx, err)
+	}
+
+	if affected == 0 {
+		if errRb := tx.Rollback(); errRb != nil {
+			return err
+		}
+		return ErrFailedToDelete
+	}
+
+	return tx.Commit()
 }
 
-// DeleteDataByProjectRun deletes all rows belonging to the selected run in the selected project.
-func DeleteDataByProjectRun(projectID uuid.UUID, runSeqNo int) error {
-	query := "DELETE FROM project_data WHERE project_id=$1 and run_seq_no=$2"
-	db, err := ConnectData()
-	if err != nil {
-		return err
-	}
-	defer db.Close()
+var DeleteByTimeQuery = "SELECT drop_chunks(INTERVAL '?', 'projects_data');"
 
-	_, err = db.Exec(query, projectID, runSeqNo)
+// DeleteByTime is handling cleanup delete of old data after it has been backed up.
+// It will delete all data in the table older, than the INTERVAL.
+func (f *TimescaleFunctions) DeleteByTime(intervalString string) error {
+	tx, err := f.Connect()
 	if err != nil {
 		return err
 	}
-	return nil
+
+	result, err := tx.Exec(DeleteByTimeQuery, intervalString)
+	if err != nil {
+		return err
+	}
+
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return f.RollbackWithErrorStack(tx, err)
+	}
+
+	if affected == 0 {
+		if errRb := tx.Rollback(); errRb != nil {
+			return err
+		}
+		return ErrFailedToDelete
+	}
+
+	return tx.Commit()
 }
 
-// DeleteDataByProject deletes all rows belonging to the projectID
-func DeleteDataByProject(projectID uuid.UUID) error {
-	query := "DELETE FROM project_data WHERE project_id=$1"
-	db, err := ConnectData()
-	if err != nil {
-		return err
-	}
-	defer db.Close()
+var GetDataByViewerAndTimeQuery = "SELECT * FROM projects_data WHERE viewer_id = ? AND created_at > ? limit ?"
 
-	_, err = db.Exec(query, projectID)
+// GetDataByViewerAndTime returns a chunk of data belonging to the defined viewer and starting from the defined time.
+func (f *TimescaleFunctions) GetDataByViewerAndTime(viewerID int, time time.Time, chunkSize int) ([]models.Data, error) {
+	tx, err := f.Connect()
 	if err != nil {
-		return err
-	}
-	return nil
-}
-
-// GetDataByProjectRunChunk returns a chunk of data belonging to the specific run of the project with projectID.
-// startTime defines the start time of the selection and itemCount refers to the number of rows to be returned after the startTime
-func GetDataByProjectRunChunk(projectID uuid.UUID, runSeqNo int, startTime time.Time, itemCount int) (*[]Data, error) {
-	query := "SELECT * FROM project_data WHERE project_id = $1 AND run_seq_no = $2 and created_at > $3 limit $4"
-	db, err := ConnectData()
-	if err != nil {
-		return &[]Data{}, err
-	}
-	defer db.Close()
-
-	rows, err := db.Query(query, projectID, runSeqNo, startTime, itemCount)
-	if err != nil {
-		return &[]Data{}, err
+		return nil, err
 	}
 
-	dataList := []Data{}
+	rows, err := tx.Query(GetDataByViewerAndTimeQuery, viewerID, time, chunkSize)
+	if err != nil {
+		return nil, err
+	}
+
+	dataList := make([]models.Data, 0)
 	defer rows.Close()
 	for rows.Next() {
-		data := Data{}
-		err = rows.Scan(&data.CreatedAt, &data.ProjectID, &data.RunSeqNo, &data.Data)
+		data := models.Data{}
+		dataMap := []byte{}
+		err = rows.Scan(&data.CreatedAt, &data.ViewerID, &dataMap)
 		if err != nil {
-			return &[]Data{}, err
+			return nil, f.RollbackWithErrorStack(tx, err)
+		}
+		if err := json.Unmarshal(dataMap, &data.Data); err != nil {
+			return nil, f.RollbackWithErrorStack(tx, err)
 		}
 		dataList = append(dataList, data)
 	}
 
-	// get any error encountered during iteration
 	err = rows.Err()
 	if err != nil {
-		return &[]Data{}, err
+		return nil, f.RollbackWithErrorStack(tx, err)
 	}
 
-	return &dataList, nil
+	return dataList, tx.Commit()
 }
