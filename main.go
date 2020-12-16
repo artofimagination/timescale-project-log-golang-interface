@@ -8,7 +8,7 @@ import (
 
 	"github.com/artofimagination/timescaledb-project-log-go-interface/dbcontrollers"
 	"github.com/artofimagination/timescaledb-project-log-go-interface/models"
-
+	"github.com/google/uuid"
 	"github.com/pkg/errors"
 )
 
@@ -66,11 +66,17 @@ func addData(w http.ResponseWriter, r *http.Request) {
 
 	dataList := make([]models.Data, len(inputDataList))
 	for i, data := range inputDataList {
-		viewerID, ok := data.(map[string]interface{})["viewer_id"].(int)
+		viewerIDString, ok := data.(map[string]interface{})["viewer_id"].(string)
 		if !ok {
 			w.WriteHeader(http.StatusBadRequest)
 			fmt.Fprint(w, "Missing 'viewer_id'")
 			return
+		}
+
+		viewerID, err := uuid.Parse(viewerIDString)
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			fmt.Fprint(w, err)
 		}
 
 		content, ok := data.(map[string]interface{})["data"].(models.DataMap)
