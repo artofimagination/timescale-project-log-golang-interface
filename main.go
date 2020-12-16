@@ -7,10 +7,12 @@ import (
 	"net/http"
 
 	"github.com/artofimagination/timescaledb-project-log-go-interface/dbcontrollers"
-	"github.com/artofimagination/timescaledb-project-log-go-interface/timescaledb"
-
+	"github.com/artofimagination/timescaledb-project-log-go-interface/models"
+	"github.com/google/uuid"
 	"github.com/pkg/errors"
 )
+
+var controller *dbcontrollers.TimescaleController
 
 func sayHello(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintln(w, "Hi! I am an example server!")
@@ -48,17 +50,64 @@ func decodePostData(w http.ResponseWriter, r *http.Request) (map[string]interfac
 	return data, nil
 }
 
-func addProject(w http.ResponseWriter, r *http.Request) {
-	log.Println("Adding project")
-	_, err := decodePostData(w, r)
+func addData(w http.ResponseWriter, r *http.Request) {
+	log.Println("Adding data")
+	input, err := decodePostData(w, r)
 	if err != nil {
 		return
 	}
 
+	inputDataList, ok := input["data_to_store"].([]interface{})
+	if !ok {
+		w.WriteHeader(http.StatusBadRequest)
+		fmt.Fprint(w, "Missing 'data_to_store'")
+		return
+	}
+
+	dataList := make([]models.Data, len(inputDataList))
+	for i, data := range inputDataList {
+		viewerIDString, ok := data.(map[string]interface{})["viewer_id"].(string)
+		if !ok {
+			w.WriteHeader(http.StatusBadRequest)
+			fmt.Fprint(w, "Missing 'viewer_id'")
+			return
+		}
+
+		viewerID, err := uuid.Parse(viewerIDString)
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			fmt.Fprint(w, err)
+		}
+
+		content, ok := data.(map[string]interface{})["data"].(models.DataMap)
+		if !ok {
+			w.WriteHeader(http.StatusBadRequest)
+			fmt.Fprint(w, "Missing 'data'")
+			return
+		}
+		d := models.Data{
+			ViewerID: viewerID,
+			Data:     content,
+		}
+		dataList[i] = d
+	}
+
+	if err := controller.AddData(dataList); err == nil {
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprint(w, "Data addition complete")
+		return
+	}
+	if err.Error() == dbcontrollers.ErrFailedToAddData.Error() {
+		w.WriteHeader(http.StatusAccepted)
+		fmt.Fprint(w, err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusInternalServerError)
+	fmt.Fprint(w, err.Error())
 }
 
-func getProject(w http.ResponseWriter, r *http.Request) {
-	log.Println("Getting project")
+func getDataByViewer(w http.ResponseWriter, r *http.Request) {
+	log.Println("Getting data by viewer")
 	if err := checkRequestType(GET, w, r); err != nil {
 		return
 	}
@@ -66,17 +115,14 @@ func getProject(w http.ResponseWriter, r *http.Request) {
 
 func main() {
 	http.HandleFunc("/", sayHello)
-	http.HandleFunc("/add-project", addProject)
-	http.HandleFunc("/get-project", getProject)
+	http.HandleFunc("/add-data", addData)
+	http.HandleFunc("/get-data-by-viewer", getDataByViewer)
 
-	_, err := dbcontrollers.NewDBController()
+	c, err := dbcontrollers.NewDBController()
 	if err != nil {
 		panic(err)
 	}
-
-	if err := timescaledb.BootstrapData(); err != nil {
-		log.Fatalf("Data bootstrap failed. %s\n", errors.WithStack(err))
-	}
+	controller = c
 
 	// Start HTTP server that accepts requests from the offer process to exchange SDP and Candidates
 	panic(http.ListenAndServe(":8080", nil))
