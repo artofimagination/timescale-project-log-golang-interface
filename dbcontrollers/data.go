@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/artofimagination/timescaledb-project-log-go-interface/models"
+	"github.com/google/uuid"
 	"github.com/pkg/errors"
 )
 
@@ -30,8 +31,8 @@ func (c *TimescaleController) DeleteDataByTime(intervalString string) error {
 	return nil
 }
 
-func (c *TimescaleController) GetDataByViewerAndTime(viewerID int, time time.Time, chunkSize int) ([]models.Data, error) {
-	data, err := c.DBFunctions.GetDataByViewerAndTime(viewerID, time, chunkSize)
+func (c *TimescaleController) GetDataByViewerAndTime(viewerID *uuid.UUID, time time.Time) ([]models.Data, error) {
+	data, err := c.DBFunctions.GetDataByViewerAndTime(viewerID, time)
 	if err != nil {
 		return nil, ErrFailedToAddData
 	}

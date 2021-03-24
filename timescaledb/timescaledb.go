@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/artofimagination/timescaledb-project-log-go-interface/models"
+	"github.com/google/uuid"
 	"github.com/pkg/errors"
 	migrate "github.com/rubenv/sql-migrate"
 
@@ -23,7 +24,7 @@ type FunctionsCommon interface {
 	AddData(data []models.Data) error
 	DeleteByViewerID(viewerID int) error
 	DeleteByTime(intervalString string) error
-	GetDataByViewerAndTime(viewerID int, time time.Time, chunkSize int) ([]models.Data, error)
+	GetDataByViewerAndTime(viewerID *uuid.UUID, time time.Time) ([]models.Data, error)
 }
 
 type TimescaleFunctions struct {

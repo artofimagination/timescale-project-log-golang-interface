@@ -22,4 +22,4 @@ jobs:
         run: cp test/.env_functional_test .env && docker-compose up -d main-server
 
       - name: Run functional test
-        run: pip3 install -r test/requirements.txt && pytest -v test
+        run: pip3 install -r test/requirements.txt && pytest -v tests/functional

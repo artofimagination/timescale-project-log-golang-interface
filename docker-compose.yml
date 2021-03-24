@@ -25,7 +25,7 @@ services:
     container_name: main-server
     image: artofimagination/main-server
     ports:
-      - "8080:8080"
+      - "8186:8186"
     networks:
       - development
     depends_on: 
