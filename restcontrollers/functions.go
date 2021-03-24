@@ -38,15 +38,6 @@ type ResponseData struct {
 	Data  interface{} `json:"data" validation:"required"`
 }
 
-func prettyPrint(v interface{}) {
-	b, err := json.MarshalIndent(v, "", "  ")
-	if err == nil {
-		fmt.Println(string(b))
-		return
-	}
-	fmt.Println("Failed to pretty print data")
-}
-
 func (w ResponseWriter) writeError(message string, statusCode int) {
 	response := ResponseData{
 		Error: message,
