@@ -39,34 +39,29 @@ type ResponseData struct {
 }
 
 func (w ResponseWriter) writeError(message string, statusCode int) {
-	response := ResponseData{
+	response := &ResponseData{
 		Error: message,
 	}
 
-	b, err := json.Marshal(response)
-	if err != nil {
-		w.writeError(err.Error(), http.StatusInternalServerError)
-		return
-	}
-	w.writeResponse(string(b), statusCode)
+	w.writeResponse(response, statusCode)
 }
 
 func (w ResponseWriter) writeData(data interface{}, statusCode int) {
-	response := ResponseData{
+	response := &ResponseData{
 		Data: data,
 	}
 
+	w.writeResponse(response, statusCode)
+}
+
+func (w ResponseWriter) writeResponse(response *ResponseData, statusCode int) {
 	b, err := json.Marshal(response)
 	if err != nil {
 		w.writeError(err.Error(), http.StatusInternalServerError)
 		return
 	}
-	w.writeResponse(string(b), statusCode)
-}
-
-func (w ResponseWriter) writeResponse(data string, statusCode int) {
 	w.WriteHeader(statusCode)
-	fmt.Fprint(w, data)
+	fmt.Fprint(w, string(b))
 }
 
 func checkRequestType(requestTypeString string, w ResponseWriter, r *Request) error {
