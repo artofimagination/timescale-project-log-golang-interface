@@ -2,50 +2,38 @@ package timescaledb
 
 import (
 	"encoding/json"
-	"strings"
 	"time"
 
 	"github.com/artofimagination/timescaledb-project-log-go-interface/models"
+	"github.com/google/uuid"
+	"github.com/lib/pq"
 	"github.com/pkg/errors"
 )
 
 var ErrFailedToAdd = errors.New("Failed to add project data")
 var ErrFailedToDelete = errors.New("Failed to delete project data")
 
-var AddDataQuery = "INSERT INTO projects_data VALUES (NOW(), ?, ?)"
-
 func (f *TimescaleFunctions) AddData(data []models.Data) error {
-	query := AddDataQuery + strings.Repeat(",(NOW(), ?, ?)", len(data)-1) + ")"
-	interfaceList := make([]interface{}, len(data))
-	for i := range data {
-		binary, err := json.Marshal(data[i].Data)
-		if err != nil {
-			return err
-		}
-		interfaceList[i] = data[i].ViewerID
-		interfaceList[i] = binary
-	}
-
 	tx, err := f.Connect()
 	if err != nil {
 		return err
 	}
 
-	result, err := tx.Exec(query, interfaceList...)
+	stmt, err := tx.Prepare(pq.CopyIn("projects_data", "created_at", "viewer_id", "data"))
 	if err != nil {
 		return err
 	}
 
-	affected, err := result.RowsAffected()
-	if err != nil {
-		return f.RollbackWithErrorStack(tx, err)
-	}
-
-	if affected == 0 {
-		if errRb := tx.Rollback(); errRb != nil {
+	for _, value := range data {
+		_, err = stmt.Exec(value.CreatedAt, value.ViewerID, value.Data)
+		if err != nil {
 			return err
 		}
-		return ErrFailedToAdd
+	}
+
+	_, err = stmt.Exec()
+	if err != nil {
+		return err
 	}
 
 	return tx.Commit()
@@ -109,16 +97,16 @@ func (f *TimescaleFunctions) DeleteByTime(intervalString string) error {
 	return tx.Commit()
 }
 
-var GetDataByViewerAndTimeQuery = "SELECT * FROM projects_data WHERE viewer_id = ? AND created_at > ? limit ?"
+var GetDataByViewerAndTimeQuery = "SELECT * FROM projects_data WHERE viewer_id = $1 AND created_at > $2"
 
 // GetDataByViewerAndTime returns a chunk of data belonging to the defined viewer and starting from the defined time.
-func (f *TimescaleFunctions) GetDataByViewerAndTime(viewerID int, time time.Time, chunkSize int) ([]models.Data, error) {
+func (f *TimescaleFunctions) GetDataByViewerAndTime(viewerID *uuid.UUID, time time.Time) ([]models.Data, error) {
 	tx, err := f.Connect()
 	if err != nil {
 		return nil, err
 	}
 
-	rows, err := tx.Query(GetDataByViewerAndTimeQuery, viewerID, time, chunkSize)
+	rows, err := tx.Query(GetDataByViewerAndTimeQuery, viewerID, time)
 	if err != nil {
 		return nil, err
 	}

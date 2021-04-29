@@ -9,8 +9,8 @@ RUN apk add --update g++
 RUN go mod tidy
 RUN cd $GOPATH/src/timescaledb-project-log-go-interface/ && go build main.go
 
-# This container exposes port 8080 to the outside world
-EXPOSE 8080
+# This container exposes port 8186 to the outside world
+EXPOSE 8186
 
 RUN chmod 0766 $GOPATH/src/timescaledb-project-log-go-interface/scripts/init.sh
 

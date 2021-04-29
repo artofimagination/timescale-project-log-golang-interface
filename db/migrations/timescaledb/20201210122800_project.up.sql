@@ -5,7 +5,7 @@ CREATE extension IF NOT EXISTS "uuid-ossp";
 CREATE TABLE IF NOT EXISTS projects_data(
    created_at timestamp NOT NULL DEFAULT NOW() PRIMARY KEY,
    viewer_id uuid NOT NULL,
-   data json
+   data jsonb
 );
 
 -- +migrate Up
